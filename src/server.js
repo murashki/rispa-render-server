@@ -6,6 +6,7 @@ import ReactDOM from 'react-dom/server'
 import createHistory from 'history/createMemoryHistory'
 import flushChunks from 'webpack-flush-chunks'
 import reactTreeWalker from 'react-tree-walker'
+import Loadable from 'react-loadable'
 import {
   ConnectedRouter,
   Provider,
@@ -15,7 +16,6 @@ import {
 } from '@rispa/redux'
 import getRoutes from '@rispa/routes'
 import { CookiesProvider } from 'react-cookie'
-import { flushWebpackRequireWeakIds } from 'react-loadable'
 import Html from './Html'
 
 let stats
@@ -41,6 +41,7 @@ const renderAndProfile = (App, ssrProfilePath) => {
 const createRender = (assets, cacheConfig) => (req, res, config) => {
   const statsPath = path.resolve(config.outputPath, './stats.json')
   const ssrProfilePath = path.resolve(config.outputPath, './ssr-profile.json')
+  const loadableStatsPath = path.resolve(config.outputPath, './react-loadable.json')
 
   if (!stats) {
     stats = JSON.parse(String(fs.readFileSync(statsPath)))
@@ -51,6 +52,7 @@ const createRender = (assets, cacheConfig) => (req, res, config) => {
     SSRCaching.setCachingConfig(cacheConfig)
   }
 
+  const modules = []
   const location = req.originalUrl
   const cookies = req.universalCookies
   const history = createHistory()
@@ -61,13 +63,15 @@ const createRender = (assets, cacheConfig) => (req, res, config) => {
   store.dispatch(replace(location))
 
   const App = (
-    <Provider store={store}>
-      <CookiesProvider cookies={cookies}>
-        <ConnectedRouter history={history}>
-          {routes}
-        </ConnectedRouter>
-      </CookiesProvider>
-    </Provider>
+    <Loadable.Capture report={moduleName => modules.push(moduleName)}>
+      <Provider store={store}>
+        <CookiesProvider cookies={cookies}>
+          <ConnectedRouter history={history}>
+            {routes}
+          </ConnectedRouter>
+        </CookiesProvider>
+      </Provider>
+    </Loadable.Capture>
   )
 
   reactTreeWalker(App, when.loadOnServer)
@@ -84,9 +88,7 @@ const createRender = (assets, cacheConfig) => (req, res, config) => {
         : ReactDOM.renderToString(App)
 
       const rootDir = path.resolve(process.cwd())
-      const paths = flushWebpackRequireWeakIds().map(
-        p => path.relative(rootDir, p).replace(/\\/g, '/'),
-      )
+      const paths = []
       const flushedAssets = flushChunks(paths, stats, {
         rootDir,
       })
